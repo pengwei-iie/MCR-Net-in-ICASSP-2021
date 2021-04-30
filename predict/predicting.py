@@ -98,13 +98,13 @@ def find_best_answer(sample, start_probs, end_probs, can_logits, is_second=False
     return best_answer, best_p_idx, can_logits[best_p_idx]
 
 
-def evaluate(model, result_file):
+def evaluate(model, device, result_file):
     print(args.predict_example_files)
     with open(args.predict_example_files, 'rb') as f:
         eval_examples = pickle.load(f)
 
     with torch.no_grad():
-        tokenizer = BertTokenizer.from_pretrained('../roberta_wwm_l', do_lower_case=True)
+        tokenizer = BertTokenizer.from_pretrained('../chinese_roberta_wwm_ext', do_lower_case=True)
         model.eval()
         pred_answers, ref_answers = [], []
         fake = []
@@ -116,6 +116,7 @@ def evaluate(model, result_file):
         ref_yes1, ref_yes2, ref_no1, ref_no2 = 0, 0, 0, 0
         # in all dataset
         ref_yes11, ref_yes22, ref_no11, ref_no22 = 0, 0, 0, 0
+        cnt = 1
         for step, example in enumerate(tqdm(eval_examples)):
             start_probs, end_probs = [], []
             can_logits = []
@@ -129,6 +130,10 @@ def evaluate(model, result_file):
                 # input_ids = torch.tensor(input_ids).unsqueeze(0)
                 # input_mask = torch.tensor(input_mask).unsqueeze(0)
                 # segment_ids = torch.tensor(segment_ids).unsqueeze(0)
+                input_ids, input_mask, input_ids_q, attention_mask_q, \
+                segment_ids= \
+                    input_ids.to(device), input_mask.to(device), input_ids_q.to(device), attention_mask_q.to(device), \
+                    segment_ids.to(device)
                 start_prob, end_prob, can_logit = model(input_ids, input_ids_q, token_type_ids=segment_ids,
                                                         attention_mask=input_mask, attention_mask_q=attention_mask_q)
 
@@ -172,56 +177,57 @@ def evaluate(model, result_file):
             # if len(example['answers']) == 0 and can_logit <= 0.9:
             #     ref_no22 += 1
 
-            if len(example['answers']) != 0 and can_logit >= 0.5:
-                ref_yes11 += 1
-            if len(example['answers']) != 0 and can_logit <= 0.5:
-                ref_yes22 += 1
-            if len(example['answers']) == 0 and can_logit >= 0.5:
-                ref_no11 += 1
-            if len(example['answers']) == 0 and can_logit <= 0.5:
-                ref_no22 += 1
+            # if len(example['answers']) != 0 and can_logit >= 0.5:
+            #     ref_yes11 += 1
+            # if len(example['answers']) != 0 and can_logit <= 0.5:
+            #     ref_yes22 += 1
+            # if len(example['answers']) == 0 and can_logit >= 0.5:
+            #     ref_no11 += 1
+            # if len(example['answers']) == 0 and can_logit <= 0.5:
+            #     ref_no22 += 1
 
+            # if len(example['answers']) == 0:
+            #     true.append(example)
+            #     print('ref no answer, score is:', can_logit)
+            #     true_count += 1
+            # if best_answer == 'no':
+            #     # if len(example['answers']) != 0 and can_logit >= 0.9:
+            #     #     ref_yes1 += 1
+            #     # if len(example['answers']) != 0 and can_logit <= 0.9:
+            #     #     ref_yes2 += 1
+            #     # if len(example['answers']) == 0 and can_logit >= 0.9:
+            #     #     ref_no1 += 1
+            #     # if len(example['answers']) == 0 and can_logit <= 0.9:
+            #     #     ref_no2 += 1
+            #     if len(example['answers']) != 0 and can_logit >= 0.5:
+            #         ref_yes1 += 1
+            #     if len(example['answers']) != 0 and can_logit <= 0.5:
+            #         ref_yes2 += 1
+            #     if len(example['answers']) == 0 and can_logit >= 0.5:
+            #         ref_no1 += 1
+            #     if len(example['answers']) == 0 and can_logit <= 0.5:
+            #         ref_no2 += 1
+
+            # print('question_id is {}, question is {}, pre answers is {}, true answer is {}, can_prob is {}'.format(
+            #     example['id'], example['question_text'], [best_answer], example['answers'], can_logit))
+            # fake.append({'question_id': example['id'],
+            #              'question': example['question_text'],
+            #              'question_type': example['question_type'],
+            #              'answers': [best_answer],
+            #              'can_answer': [can_logit]})
+            # fake.append({'question_id': example['id'],
+            #              'question_type': example['question_type'],
+            #              'answers': example['answers']})
+            pred_count += 1
             if len(example['answers']) == 0:
-                true.append(example)
-                print('ref no answer, score is:', can_logit)
-                true_count += 1
-            if best_answer == 'no':
-                # if len(example['answers']) != 0 and can_logit >= 0.9:
-                #     ref_yes1 += 1
-                # if len(example['answers']) != 0 and can_logit <= 0.9:
-                #     ref_yes2 += 1
-                # if len(example['answers']) == 0 and can_logit >= 0.9:
-                #     ref_no1 += 1
-                # if len(example['answers']) == 0 and can_logit <= 0.9:
-                #     ref_no2 += 1
-                if len(example['answers']) != 0 and can_logit >= 0.5:
-                    ref_yes1 += 1
-                if len(example['answers']) != 0 and can_logit <= 0.5:
-                    ref_yes2 += 1
-                if len(example['answers']) == 0 and can_logit >= 0.5:
-                    ref_no1 += 1
-                if len(example['answers']) == 0 and can_logit <= 0.5:
-                    ref_no2 += 1
-
-                print('question_id is {}, question is {}, pre answers is {}, true answer is {}, can_prob is {}'.format(
-                    example['id'], example['question_text'], [best_answer], example['answers'], can_logit))
-                fake.append({'question_id': example['id'],
-                             'question': example['question_text'],
-                             'question_type': example['question_type'],
-                             'answers': [best_answer],
-                             'can_answer': [can_logit]})
-                fake.append({'question_id': example['id'],
-                             'question_type': example['question_type'],
-                             'answers': example['answers']})
-                pred_count += 1
-                if len(example['answers']) == 0:
-                    pred_recall += 1
+                pred_recall += 1
                 # best_answer = []
                 # continue
             pred_answers.append({'question_id': example['id'],
                                  'question': example['question_text'],
-                                 'question_type': example['question_type'],
                                  'answers': [best_answer],
+                                 'start': str(start_probs[0].cpu().numpy()),
+                                 'end': str(end_probs[0].cpu().numpy().tostring()),
                                  'entity_answers': [[]],
                                  'yesno_answers': [],
                                  'can_answer': [can_logit]})
@@ -229,7 +235,6 @@ def evaluate(model, result_file):
                 example['answers'] = 'no'
             if 'answers' in example:
                 ref_answers.append({'question_id': example['id'],
-                                    'question_type': example['question_type'],
                                     'answers': example['answers'],
                                     'entity_answers': [[]],
                                     'yesno_answers': [],
@@ -238,15 +243,15 @@ def evaluate(model, result_file):
         with open(result_file, 'w', encoding='utf-8') as fout:
             for pred_answer in pred_answers:
                 fout.write(json.dumps(pred_answer, ensure_ascii=False) + '\n')
-        with open("../metric/ref_abla-multi.json", 'w', encoding='utf-8') as fout:
+        with open("../metric/ref_2021.json", 'w', encoding='utf-8') as fout:
             for pred_answer in ref_answers:
                 fout.write(json.dumps(pred_answer, ensure_ascii=False) + '\n')
         print('in predict', ref_yes1, ref_yes2, ref_no1, ref_no2)
         print('in all data', ref_yes11, ref_yes22, ref_no11, ref_no22)
-        print('no answer classifier -- acc is: ', pred_recall * 100 / pred_count)
-        print('no answer classifier -- recall is: ', pred_recall * 100 / true_count)
-        print('pred_recall is {}, pred_count is {}, acc_count is {}'.format(pred_recall, pred_count, true_count))
-        print('aa: max ', aa, 'bb: min ', bb)
+        # print('no answer classifier -- acc is: ', pred_recall * 100 / pred_count)
+        # print('no answer classifier -- recall is: ', pred_recall * 100 / true_count)
+        # print('pred_recall is {}, pred_count is {}, acc_count is {}'.format(pred_recall, pred_count, true_count))
+        # print('aa: max ', aa, 'bb: min ', bb)
         # with open("../metric/pre_onlyno_answer.json", 'w', encoding='utf-8') as fout:
         #     for i in fake:
         #         fout.write(json.dumps(i, ensure_ascii=False) + '\n')
@@ -256,8 +261,9 @@ def evaluate(model, result_file):
 
 
 def eval_all():
-    output_model_file = "../model_dir/best_model_ablation-mult"
-    output_config_file = "../model_dir/bert_config.json"
+    device = torch.device("cuda", 0)
+    output_model_file = "../model_dir_/model_nodata_2021_8"
+    output_config_file = "../chinese_roberta_wwm_l/bert_config.json"
 
     config = BertConfig(output_config_file)
     model = BertForQuestionAnswering(config)
@@ -273,8 +279,9 @@ def eval_all():
             k = k.replace('module.', '')
         new_state_dict[k] = v
     model.load_state_dict(new_state_dict)
+    model = model.to(device)
     # model.load_state_dict(torch.load(output_model_file)) #, map_location='cpu'))
-    evaluate(model.cpu(), result_file="../metric/predicts_abla-multi.json")
+    evaluate(model, device, result_file="../metric/predicts_nodata_2021_8.json")
 
 
 eval_all()

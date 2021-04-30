@@ -5,7 +5,7 @@ import random
 import pickle
 from tqdm import tqdm
 from torch import nn, optim
-
+from collections import OrderedDict
 import evaluate
 from optimizer import BertAdam
 from dataset.dataloader import Dureader
@@ -16,16 +16,34 @@ from model_dir.modeling import BertForQuestionAnswering, BertConfig
 random.seed(args.seed)
 torch.manual_seed(args.seed)
 device = args.device
-device_ids = [0]
+device_ids = [1, 0]
 if len(device_ids) > 0:
     torch.cuda.manual_seed_all(args.seed)
 
+
 def train():
     # 加载预训练bert
-    model = BertForQuestionAnswering.from_pretrained('./roberta_wwm_ext',
+    model = BertForQuestionAnswering.from_pretrained('./chinese_roberta_wwm_l',
                     cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(-1)))
-    # device = args.device
-    # model.to(device)
+
+    # output_model_file = "./model_dir_/pre_model"
+    # output_config_file = "./chinese_roberta_wwm_l/bert_config.json"
+    #
+    # config = BertConfig(output_config_file)
+    # model = BertForQuestionAnswering(config)
+    # # 针对多卡训练加载模型的方法：
+    # state_dict = torch.load(output_model_file, map_location='cuda:0')
+    # # 初始化一个空 dict
+    # new_state_dict = OrderedDict()
+    # # 修改 key，没有module字段则需要不上，如果有，则需要修改为 module.features
+    # for k, v in state_dict.items():
+    #     if 'module' not in k:
+    #         k = k
+    #     else:
+    #         k = k.replace('module.', '')
+    #     new_state_dict[k] = v
+    # model.load_state_dict(new_state_dict)
+
     if len(device_ids) > 1:
         model = torch.nn.DataParallel(model, device_ids=device_ids)  # 声明所有可用设备
         model = model.cuda(device=device_ids[0])  # 模型放在主设备
@@ -72,7 +90,7 @@ def train():
                     input_ids.to(device), input_mask.to(device), input_ids_q.to(device), input_mask_q.to(device), \
                     segment_ids.to(device), can_answer.to(device), start_positions.to(device), \
                     end_positions.to(device)
-                print("gpu nums is 1.")
+                # print("gpu nums is 1.")
 
             # 计算loss
             loss, main_loss, ide_loss, s, e = model(input_ids, input_ids_q, token_type_ids=segment_ids,
@@ -108,10 +126,11 @@ def train():
                 if eval_loss < best_loss:
                     best_loss = eval_loss
                     if len(device_ids) > 1:
-                        torch.save(model.module.state_dict(), './model_dir/' + "best_model_ablation-mult")
+                        torch.save(model.module.state_dict(), './model_dir_/' + "model_nodata_2021_8")
                     if len(device_ids) == 1:
-                        torch.save(model.state_dict(), './model_dir/' + "best_model_ablation-mult")
+                        torch.save(model.state_dict(), './model_dir_/' + "model_nodata_2021_8")
                 model.train()
+
 
 if __name__ == "__main__":
     train()

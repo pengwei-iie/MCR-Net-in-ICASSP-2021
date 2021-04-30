@@ -33,7 +33,7 @@ def evaluate(model, dev_data, device_ids):
 
         for i in losses:
             total += i
-        with open("./log_dy", 'a') as f:
+        with open("./log_nodata_2021_8", 'a') as f:
             f.write("eval_loss: " + str(total / len(losses)) + "\n")
 
         return total / len(losses)

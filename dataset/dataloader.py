@@ -27,8 +27,8 @@ class Dureader():
 
         self.train, self.dev = torchtext.data.TabularDataset.splits(
                 path=path,
-                train="train_2020.data",
-                validation="dev_2020.data",
+                train="train_2021.json",
+                validation="dev_2021.json",
                 format='json',
                 fields=dict_fields)
         self.train_iter, self.dev_iter = torchtext.data.BucketIterator.splits(

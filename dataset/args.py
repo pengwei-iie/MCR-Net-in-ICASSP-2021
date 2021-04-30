@@ -6,7 +6,9 @@ test_lines = 187818  # 多少条训练数据，即：len(features)
 
 search_input_file = "../data/extracted/trainset/search.train.json"
 zhidao_input_file = "../data/extracted/trainset/zhidao.train.json"
+train_2021 = "../dataset_checklist/train_preprocess.json"
 dev_zhidao_input_file = "../data/extracted/devset/zhidao.dev.json"
+dev_2021 = "../dataset_checklist/dev_preprocess.json"
 dev_search_input_file = "../data/extracted/devset/search.dev.json"
 
 max_seq_length = 512

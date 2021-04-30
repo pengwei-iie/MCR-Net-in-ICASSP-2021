@@ -13,7 +13,7 @@ max_seq_length = 512
 max_query_length = 60
 
 output_dir = "./model_dir"
-predict_example_files='test1.data'
+predict_example_files='predict_2021.json'
 # DESCRIPTION, YES_NO, ENTITY
 action = 'DESCRIPTION'
 

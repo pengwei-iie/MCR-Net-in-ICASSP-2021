@@ -1365,8 +1365,9 @@ class BertForQuestionAnswering(BertPreTrainedModel):
 
     def initHiddenUtil(self, passage, hidden_size):
         # multiplied by 2 as all rnns are bi directional presently
-
-        return Variable(torch.zeros(passage.size()[0], hidden_size))
+        w = torch.empty(passage.size()[0], hidden_size).cuda(passage.device.index)
+        nn.init.xavier_uniform_(w, gain=nn.init.calculate_gain('relu'))
+        return Variable(w)
 
     # def initHiddenAnsReccNetwork(self, question):
     #
