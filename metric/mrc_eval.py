@@ -93,9 +93,9 @@ def read_file(file_name, is_ref=False):
     results = {}
     if is_ref:
 #        keys = ['source', 'answers', 'yesno_answers', 'entity_answers', 'question_type']
-        keys = ['answers', 'yesno_answers', 'entity_answers', 'question_type']
+        keys = ['answers', 'yesno_answers', 'entity_answers']
     else:
-        keys = ['answers', 'yesno_answers', 'entity_answers', 'question_type'] 
+        keys = ['answers', 'yesno_answers', 'entity_answers']
     try:
         zf = zipfile.ZipFile(file_name, 'r') if file_name.endswith('.zip') else None
     except:
@@ -150,17 +150,7 @@ def main(args):
             ref_answers = results.get('answers', [])
             if not ref_answers:
                 ref_answers = ' '
-            if results['question_type'] == 'ENTITY':
-                ref_entities = set(
-                        itertools.chain(*results.get('entity_answers', [[]])))
-                with open('e.data','a', encoding='utf-8') as f:
-                    f.write(str(ref_entities) + '\n')
-                if not ref_entities:
-                    ref_entities = None
-            if results['question_type'] == 'YES_NO':
-                cand_yesno = cand_result.get('yesno_answers', [])
-                pred_yn_label = None if len(cand_yesno) == 0 \
-                        else cand_yesno[0]
+
             bleu_eval.add_inst(
                     pred_answers,
                     ref_answers,

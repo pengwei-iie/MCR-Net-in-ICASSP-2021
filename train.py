@@ -16,7 +16,7 @@ from model_dir.modeling import BertForQuestionAnswering, BertConfig
 random.seed(args.seed)
 torch.manual_seed(args.seed)
 device = args.device
-device_ids = [1, 0]
+device_ids = [0, 1]
 if len(device_ids) > 0:
     torch.cuda.manual_seed_all(args.seed)
 
@@ -126,9 +126,9 @@ def train():
                 if eval_loss < best_loss:
                     best_loss = eval_loss
                     if len(device_ids) > 1:
-                        torch.save(model.module.state_dict(), './model_dir_/' + "model_nodata_2021_8")
+                        torch.save(model.module.state_dict(), './model_dir_/' + "model_baseline")
                     if len(device_ids) == 1:
-                        torch.save(model.state_dict(), './model_dir_/' + "model_nodata_2021_8")
+                        torch.save(model.state_dict(), './model_dir_/' + "model_baseline")
                 model.train()
 
 

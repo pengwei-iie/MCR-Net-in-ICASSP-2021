@@ -1,8 +1,8 @@
 import json
 from tqdm import tqdm
 
-input_file = "../metric/predicts_nodata_2021.json"
-output_file = "../metric/submit_nodata_large.json"
+input_file = "../metric/predicts_baseline_8.json"
+output_file = "../metric/submit_baseline.json"
 examples = {}
 with open(input_file, 'r', encoding='utf-8') as f:
     for line in tqdm(f.readlines()):

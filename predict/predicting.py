@@ -262,7 +262,7 @@ def evaluate(model, device, result_file):
 
 def eval_all():
     device = torch.device("cuda", 0)
-    output_model_file = "../model_dir_/model_nodata_2021_8"
+    output_model_file = "../model_dir_/model_baseline"
     output_config_file = "../chinese_roberta_wwm_l/bert_config.json"
 
     config = BertConfig(output_config_file)
@@ -281,7 +281,7 @@ def eval_all():
     model.load_state_dict(new_state_dict)
     model = model.to(device)
     # model.load_state_dict(torch.load(output_model_file)) #, map_location='cpu'))
-    evaluate(model, device, result_file="../metric/predicts_nodata_2021_8.json")
+    evaluate(model, device, result_file="../metric/predicts_baseline_8.json")
 
 
 eval_all()

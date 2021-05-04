@@ -1083,19 +1083,9 @@ class BertForQuestionAnswering(BertPreTrainedModel):
             nn.Linear(128, 1)
         )
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.linear = nn.Linear(config.hidden_size * 3, config.hidden_size)
-        self.linear_merge = nn.Linear(config.hidden_size * 2, config.hidden_size)
-        self.linear_max = nn.Linear(config.hidden_size * 2, config.hidden_size)
-
-        self.qa_outputs = nn.Linear(768, 2)
-        self.classifier_outputs = nn.Sequential(
-            nn.Linear(config.hidden_size*3, config.hidden_size),
-            nn.Linear(config.hidden_size, 128),
-            nn.Linear(128,2)
-        )
+        self.qa_outputs = nn.Linear(config.hidden_size, 2)
+        self.classifier_outputs = nn.Linear(config.hidden_size, 2)
         self.can_score = nn.Sequential(
-            nn.Linear(config.hidden_size*3, config.hidden_size),
-            nn.ReLU(True),
             nn.Linear(config.hidden_size, 128),
             nn.ReLU(True),
             nn.Linear(128, 1)
@@ -1126,116 +1116,119 @@ class BertForQuestionAnswering(BertPreTrainedModel):
 
         sequence_output, first_token, _ = self.bert(input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask,
                                        output_all_encoded_layers=False)
-        self.initHidden(input_ids, hidden_size=sequence_output.size()[2])
-        # get question representation ()
-        ques, ques_first, ques_last = self.bert(input_ids_q, None, attention_mask=attention_mask_q, output_all_encoded_layers=False)
 
-        extended_attention_mask_p = attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
-        # (b, tokens)
-        extended_attention_mask_p = (1.0 - extended_attention_mask_p) * -10000.0
-
-
-        # ************************************* use whole info
-        # extended_attention_mask_q = attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
+        # # MCR-NET
+        # self.initHidden(input_ids, hidden_size=sequence_output.size()[2])
+        #
+        # # get question representation ()
+        # ques, ques_first, ques_last = self.bert(input_ids_q, None, attention_mask=attention_mask_q, output_all_encoded_layers=False)
+        #
+        # extended_attention_mask_p = attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
         # # (b, tokens)
-        # extended_attention_mask_q = (1.0 - extended_attention_mask_q) * -10000.0
-
-        # (b, tokens, 1)
-        attention_scores = self.token_score(self.dropout(sequence_output))
-        # (b, tokens)
-        attention_scores = attention_scores.squeeze(-1)
-        attention_scores = attention_scores + extended_attention_mask_p
-
-        # Normalize the attention scores to probabilities. 每个词都有一个分值，用这个分值和hidden×起来，相加
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
-        # (b, tokens, 1)
-        attention_probs = attention_probs.unsqueeze(-1)
-        doc_mean = torch.mean(sequence_output * attention_probs, 1)
-        doc_max, index = torch.max(sequence_output * attention_probs, 1)
-        doc_sum = torch.sum(sequence_output * attention_probs, 1)
-        doc_re = self.linear(torch.cat((doc_max, doc_mean, doc_sum), dim=-1))
-        doc = doc_re.unsqueeze(1).repeat(1, input_ids.size()[1], 1)
-        sequence_output = self.linear_merge(torch.cat((doc, sequence_output), dim=-1))
-
-        # first_token and max
-        # first_max = self.linear_max(torch.cat((first_token, doc_max), dim=-1))
-        # ************************************* use whole info
-
-        # do the dynamic_networks
-        # ques_last(b, hidden) , sequence_output(b, tokens, hidden)
-        # 1,computer attention scores: --gate  --get query-aware passage representation
-        ques_last = ques_last.unsqueeze(1)
-
-        # use para to da attention, not question
-        # ques_last = torch.empty(sequence_output.size()[0], sequence_output.size()[2]).cuda(sequence_output.device.index)
-        # ques_last = nn.init.xavier_uniform_(ques_last, gain=nn.init.calculate_gain('relu')).unsqueeze(1)
-
-        whole = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        sequence_output_concat = self.attention_s1(torch.cat((sequence_output, whole), dim=-1))
-        attention_scores_s = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
-        attention_scores_ssoft = attention_scores_s.squeeze(-1)
-        # attention_scores_dy 计算loss
-        attention_scores_ssoft = attention_scores_ssoft + extended_attention_mask_p
-
-        # 2,Normalize the attention scores to probabilities.
-        # get whole representation
-        attention_probs_s1 = nn.Softmax(dim=-1)(attention_scores_ssoft)
-        # (b, tokens, 1) # fixme: attention_probs_s1 可视化
-        attention_probs_s1 = attention_probs_s1.unsqueeze(-1)
-        self.whole_start = torch.sum((sequence_output_concat * attention_probs_s1), dim=1)
-
-        # 1,computer attention scores: --gate  --get query-aware passage representation
-        # ques_last = ques_last.unsqueeze(1)
-        whole = self.whole_end.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        whole_ = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        sequence_output_concat = self.attention_e1(torch.cat((sequence_output, whole, whole_), dim=-1))
-        attention_scores_e = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
-        attention_scores_esoft = attention_scores_e.squeeze(-1)
-        # attention_scores_dy 计算loss
-        attention_scores_esoft = attention_scores_esoft + extended_attention_mask_p
-
-        # 2,Normalize the attention scores to probabilities.
-        # get whole representation
-        attention_probs_e1 = nn.Softmax(dim=-1)(attention_scores_esoft)
-        # (b, tokens, 1) # fixme: attention_probs可视化
-        attention_probs_e1 = attention_probs_e1.unsqueeze(-1)
-        self.whole_end = torch.sum((sequence_output_concat * attention_probs_e1), dim=1)
-
-        # # ************************************** 2 #
+        # extended_attention_mask_p = (1.0 - extended_attention_mask_p) * -10000.0
+        #
+        #
+        # # ************************************* use whole info
+        # # extended_attention_mask_q = attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
+        # # # (b, tokens)
+        # # extended_attention_mask_q = (1.0 - extended_attention_mask_q) * -10000.0
+        #
+        # # (b, tokens, 1)
+        # attention_scores = self.token_score(self.dropout(sequence_output))
+        # # (b, tokens)
+        # attention_scores = attention_scores.squeeze(-1)
+        # attention_scores = attention_scores + extended_attention_mask_p
+        #
+        # # Normalize the attention scores to probabilities. 每个词都有一个分值，用这个分值和hidden×起来，相加
+        # attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        # # (b, tokens, 1)
+        # attention_probs = attention_probs.unsqueeze(-1)
+        # doc_mean = torch.mean(sequence_output * attention_probs, 1)
+        # doc_max, index = torch.max(sequence_output * attention_probs, 1)
+        # doc_sum = torch.sum(sequence_output * attention_probs, 1)
+        # doc_re = self.linear(torch.cat((doc_max, doc_mean, doc_sum), dim=-1))
+        # doc = doc_re.unsqueeze(1).repeat(1, input_ids.size()[1], 1)
+        # sequence_output = self.linear_merge(torch.cat((doc, sequence_output), dim=-1))
+        #
+        # # first_token and max
+        # # first_max = self.linear_max(torch.cat((first_token, doc_max), dim=-1))
+        # # ************************************* use whole info
+        #
         # # do the dynamic_networks
         # # ques_last(b, hidden) , sequence_output(b, tokens, hidden)
         # # 1,computer attention scores: --gate  --get query-aware passage representation
-        # # ques_last = ques_last.unsqueeze(1)
-        whole = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        sequence_output_concat = self.attention_s1(torch.cat((sequence_output, whole), dim=-1))
-        attention_scores_s = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
-        attention_scores_ssoft = attention_scores_s.squeeze(-1)
-        # attention_scores_dy 计算loss
-        attention_scores_ssoft = attention_scores_ssoft + extended_attention_mask_p
-
-        # 2,Normalize the attention scores to probabilities.
-        # get whole representation
-        attention_probs_s1 = nn.Softmax(dim=-1)(attention_scores_ssoft)
-        # (b, tokens, 1) # fixme: attention_probs_s1 可视化
-        attention_probs_s1 = attention_probs_s1.unsqueeze(-1)
-        self.whole_start = torch.sum((sequence_output_concat * attention_probs_s1), dim=1)
-
-        # 1,computer attention scores: --gate  --get query-aware passage representation
         # ques_last = ques_last.unsqueeze(1)
-        whole = self.whole_end.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        whole_ = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        sequence_output_concat = self.attention_e1(torch.cat((sequence_output, whole, whole_), dim=-1))
-        attention_scores_e = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
-        attention_scores_esoft = attention_scores_e.squeeze(-1)
-        # attention_scores_dy 计算loss
-        attention_scores_esoft = attention_scores_esoft + extended_attention_mask_p
-
-        # 2,Normalize the attention scores to probabilities.
-        # get whole representation
-        attention_probs_e1 = nn.Softmax(dim=-1)(attention_scores_esoft)
-        # (b, tokens, 1) # fixme: attention_probs可视化
-        attention_probs_e1 = attention_probs_e1.unsqueeze(-1)
-        self.whole_end = torch.sum((sequence_output_concat * attention_probs_e1), dim=1)
+        #
+        # # use para to da attention, not question
+        # # ques_last = torch.empty(sequence_output.size()[0], sequence_output.size()[2]).cuda(sequence_output.device.index)
+        # # ques_last = nn.init.xavier_uniform_(ques_last, gain=nn.init.calculate_gain('relu')).unsqueeze(1)
+        #
+        # whole = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
+        # sequence_output_concat = self.attention_s1(torch.cat((sequence_output, whole), dim=-1))
+        # attention_scores_s = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
+        # attention_scores_ssoft = attention_scores_s.squeeze(-1)
+        # # attention_scores_dy 计算loss
+        # attention_scores_ssoft = attention_scores_ssoft + extended_attention_mask_p
+        #
+        # # 2,Normalize the attention scores to probabilities.
+        # # get whole representation
+        # attention_probs_s1 = nn.Softmax(dim=-1)(attention_scores_ssoft)
+        # # (b, tokens, 1) # fixme: attention_probs_s1 可视化
+        # attention_probs_s1 = attention_probs_s1.unsqueeze(-1)
+        # self.whole_start = torch.sum((sequence_output_concat * attention_probs_s1), dim=1)
+        #
+        # # 1,computer attention scores: --gate  --get query-aware passage representation
+        # # ques_last = ques_last.unsqueeze(1)
+        # whole = self.whole_end.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
+        # whole_ = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
+        # sequence_output_concat = self.attention_e1(torch.cat((sequence_output, whole, whole_), dim=-1))
+        # attention_scores_e = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
+        # attention_scores_esoft = attention_scores_e.squeeze(-1)
+        # # attention_scores_dy 计算loss
+        # attention_scores_esoft = attention_scores_esoft + extended_attention_mask_p
+        #
+        # # 2,Normalize the attention scores to probabilities.
+        # # get whole representation
+        # attention_probs_e1 = nn.Softmax(dim=-1)(attention_scores_esoft)
+        # # (b, tokens, 1) # fixme: attention_probs可视化
+        # attention_probs_e1 = attention_probs_e1.unsqueeze(-1)
+        # self.whole_end = torch.sum((sequence_output_concat * attention_probs_e1), dim=1)
+        #
+        # # # ************************************** 2 #
+        # # # do the dynamic_networks
+        # # # ques_last(b, hidden) , sequence_output(b, tokens, hidden)
+        # # # 1,computer attention scores: --gate  --get query-aware passage representation
+        # # # ques_last = ques_last.unsqueeze(1)
+        # whole = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
+        # sequence_output_concat = self.attention_s1(torch.cat((sequence_output, whole), dim=-1))
+        # attention_scores_s = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
+        # attention_scores_ssoft = attention_scores_s.squeeze(-1)
+        # # attention_scores_dy 计算loss
+        # attention_scores_ssoft = attention_scores_ssoft + extended_attention_mask_p
+        #
+        # # 2,Normalize the attention scores to probabilities.
+        # # get whole representation
+        # attention_probs_s1 = nn.Softmax(dim=-1)(attention_scores_ssoft)
+        # # (b, tokens, 1) # fixme: attention_probs_s1 可视化
+        # attention_probs_s1 = attention_probs_s1.unsqueeze(-1)
+        # self.whole_start = torch.sum((sequence_output_concat * attention_probs_s1), dim=1)
+        #
+        # # 1,computer attention scores: --gate  --get query-aware passage representation
+        # # ques_last = ques_last.unsqueeze(1)
+        # whole = self.whole_end.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
+        # whole_ = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
+        # sequence_output_concat = self.attention_e1(torch.cat((sequence_output, whole, whole_), dim=-1))
+        # attention_scores_e = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
+        # attention_scores_esoft = attention_scores_e.squeeze(-1)
+        # # attention_scores_dy 计算loss
+        # attention_scores_esoft = attention_scores_esoft + extended_attention_mask_p
+        #
+        # # 2,Normalize the attention scores to probabilities.
+        # # get whole representation
+        # attention_probs_e1 = nn.Softmax(dim=-1)(attention_scores_esoft)
+        # # (b, tokens, 1) # fixme: attention_probs可视化
+        # attention_probs_e1 = attention_probs_e1.unsqueeze(-1)
+        # self.whole_end = torch.sum((sequence_output_concat * attention_probs_e1), dim=1)
         #
         # # ************************************** 3 #
         # # do the dynamic_networks
@@ -1273,46 +1266,15 @@ class BertForQuestionAnswering(BertPreTrainedModel):
         # attention_probs_e1 = attention_probs_e1.unsqueeze(-1)
         # self.whole_end = torch.sum((sequence_output_concat * attention_probs_e1), dim=1)
         # # *****************************************************
-        #
-        # # ***************************************************** 4444
-        # whole = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        # sequence_output_concat = self.attention_s1(torch.cat((sequence_output, whole), dim=-1))
-        # attention_scores_s = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
-        # attention_scores_ssoft = attention_scores_s.squeeze(-1)
-        # # attention_scores_dy 计算loss
-        # attention_scores_ssoft = attention_scores_ssoft + extended_attention_mask_p
-        #
-        # # 2,Normalize the attention scores to probabilities.
-        # # get whole representation
-        # attention_probs_s1 = nn.Softmax(dim=-1)(attention_scores_ssoft)
-        # # (b, tokens, 1) # fixme: attention_probs_s1 可视化
-        # attention_probs_s1 = attention_probs_s1.unsqueeze(-1)
-        # self.whole_start = torch.sum((sequence_output_concat * attention_probs_s1), dim=1)
-        #
-        # # 1,computer attention scores: --gate  --get query-aware passage representation
-        # # ques_last = ques_last.unsqueeze(1)
-        # whole = self.whole_end.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        # whole_ = self.whole_start.unsqueeze(1).repeat(1, sequence_output.size()[1], 1)
-        # sequence_output_concat = self.attention_e1(torch.cat((sequence_output, whole, whole_), dim=-1))
-        # attention_scores_e = torch.matmul(sequence_output_concat, ques_last.transpose(-1, -2))
-        # attention_scores_esoft = attention_scores_e.squeeze(-1)
-        # # attention_scores_dy 计算loss
-        # attention_scores_esoft = attention_scores_esoft + extended_attention_mask_p
-        #
-        # # 2,Normalize the attention scores to probabilities.
-        # # get whole representation
-        # attention_probs_e1 = nn.Softmax(dim=-1)(attention_scores_esoft)
-        # # (b, tokens, 1) # fixme: attention_probs可视化
-        # attention_probs_e1 = attention_probs_e1.unsqueeze(-1)
-        # self.whole_end = torch.sum((sequence_output_concat * attention_probs_e1), dim=1)
-        # *****************************************
 
         # logits_span (b, len, 2) logits_classifier (b, 1, 2)
-        logits_span = torch.cat((attention_scores_s, attention_scores_e), dim=-1)
-        # logits_span = self.qa_outputs(sequence_output)
+        # logits_span = torch.cat((attention_scores_s, attention_scores_e), dim=-1)
+        logits_span = self.qa_outputs(sequence_output)
         # use first token
-        classifer = torch.cat((first_token, self.whole_end, self.whole_start), dim=-1)
-        logits_classifier = self.classifier_outputs(classifer).unsqueeze(1)
+        # classifer = torch.cat((first_token, self.whole_end, self.whole_start), dim=-1)
+        # logits_classifier = self.classifier_outputs(classifer).unsqueeze(1)
+
+        logits_classifier = self.classifier_outputs(first_token).unsqueeze(1)
         # use whole to classifier
         # logits_classifier = self.classifier_outputs(doc_re).unsqueeze(1)
 
@@ -1320,7 +1282,7 @@ class BertForQuestionAnswering(BertPreTrainedModel):
         # classifer = self.classifier_final(classifer)
         # can_logits = self.can_score(doc_re)
         # compute can_logits
-        can_logits_ = self.can_score(classifer)
+        can_logits_ = self.can_score(first_token)
         can_logits = self.sigmoid(can_logits_).squeeze(-1)
 
         # use score to argument/soft logits_span and logits_classifier
